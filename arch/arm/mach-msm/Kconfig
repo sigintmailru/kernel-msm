@@ -1621,6 +1621,12 @@ config MSM_CPU_FREQ_MIN
 	depends on MSM_CPU_FREQ_SET_MIN_MAX
 	default 245760
 
+config CPU_VOLTAGE_TABLE
+    bool "Enable CPU Voltage Table via sysfs for adjustements"
+    default n
+    help
+      Krait User Votlage Control
+
 endif # CPU_FREQ_MSM
 
 config MSM_AVS_HW
@@ -2670,6 +2676,17 @@ config MSM_CPU_PWRCTL
 	  Droop detector mechanism can adversely affect krait plls during
 	  stand alone power collapse operation. Selecting this option
 	  ensures that they are always off.
+
+config MSM_CPUFREQ_LIMITER
+	tristate "MSM CPU frequency limiter"
+	default n
+	help
+	  This driver limits MSM CPU frequency through sysfs file system.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called cpufreq_stats.
+
+	  If in doubt, say N.
 
 config MMC_MSM_POWER_SUPPLY_SDC3_VIA_MPP04
 	bool "PMIC MPP04"
