@@ -352,14 +352,13 @@ CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
 KERNELFLAGS   = -DNDEBUG -munaligned-access -fgcse-lm -fgcse-sm -fsched-spec-load -fforce-addr -ffast-math -fsingle-precision-constant -mcpu=cortex-a9 -mtune=cortex-a9 -marm -mfpu=neon -ftree-vectorize -fgcse-las -fmodulo-sched -fmodulo-sched-allow-regmoves 
-GRAPHITEFLAGS  = -fgraphite-identity -floop-strip-mine -funroll-loops -floop-flatten -funroll-loops -floop-flatten -ftree-loop-distribution -floop-block 
 
 MODFLAGS	= -DMODULE $(KERNELFLAGS)
 CFLAGS_MODULE   = $(MODFLAGS)
 AFLAGS_MODULE   = $(MODFLAGS)
 LDFLAGS_MODULE  = -T $(srctree)/scripts/module-common.lds
-CFLAGS_KERNEL  = $(KERNELFLAGS) $(GRAPHITEFLAGS)
-AFLAGS_KERNEL  = $(KERNELFLAGS) $(GRAPHITEFLAGS)
+CFLAGS_KERNEL  = $(KERNELFLAGS)
+AFLAGS_KERNEL  = $(KERNELFLAGS)
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 
 
@@ -379,7 +378,7 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Wno-sizeof-pointer-memaccess \
 		   -fno-delete-null-pointer-checks \
 		   -fomit-frame-pointer -O3 \
-		   $(KERNELFLAGS) $(GRAPHITEFLAGS)
+		   $(KERNELFLAGS)
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS   := -D__ASSEMBLY__
