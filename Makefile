@@ -376,6 +376,7 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
 		   -Wno-sizeof-pointer-memaccess \
+		   -Wno-sequence-point \
 		   -fno-delete-null-pointer-checks \
 		   -fomit-frame-pointer -O3 \
 		   $(KERNELFLAGS)
