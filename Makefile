@@ -351,7 +351,24 @@ CC		= $(srctree)/scripts/gcc-wrapper.py $(REAL_CC)
 
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
-KERNELFLAGS   = -DNDEBUG -munaligned-access -fgcse-lm -fgcse-sm -fsched-spec-load -fforce-addr -ffast-math -fsingle-precision-constant -mcpu=cortex-a7 -mtune=cortex-a7 -marm -mfpu=neon -ftree-vectorize -fgcse-las -fmodulo-sched -fmodulo-sched-allow-regmoves 
+
+KERNELFLAGS   = -DNDEBUG \
+		   -munaligned-access \
+		   -fgcse-lm -fgcse-sm \
+		   -ffast-math \
+		   -fforce-addr \
+		   -fsched-spec-load \
+		   -fsingle-precision-constant \
+		   -fgcse-las \
+		   -fmodulo-sched \
+		   -fmodulo-sched-allow-regmoves \
+		   -ftree-vectorize \
+		   -marm \
+		   -march=armv7-a \
+		   -mcpu=cortex-a9 \
+		   -mfpu=neon \
+		   -mtune=cortex-a9 \
+		   -mvectorize-with-neon-double
 
 MODFLAGS	= -DMODULE $(KERNELFLAGS)
 CFLAGS_MODULE   = $(MODFLAGS)
@@ -375,10 +392,10 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
-		   -Wno-sizeof-pointer-memaccess \
 		   -Wno-sequence-point \
+		   -Wno-sizeof-pointer-memaccess \
 		   -fno-delete-null-pointer-checks \
-		   -fomit-frame-pointer -O3 \
+		   -fomit-frame-pointer \
 		   $(KERNELFLAGS)
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
@@ -572,7 +589,7 @@ all: vmlinux
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= -Os
 else
-KBUILD_CFLAGS	+= -O3
+KBUILD_CFLAGS	+= -O2
 endif
 
 include $(srctree)/arch/$(SRCARCH)/Makefile
