@@ -387,6 +387,8 @@ struct pm8921_chg_chip {
 	unsigned int			warm_bat_voltage;
 	unsigned int			is_bat_cool;
 	unsigned int			is_bat_warm;
+	unsigned int			is_bat_burn;
+	unsigned int			is_bat_burn_wating;
 	unsigned int			resume_voltage_delta;
 	int				resume_charge_percent;
 	unsigned int			term_current;
@@ -932,11 +934,26 @@ static int pm_chg_uvd_threshold_set(struct pm8921_chg_chip *chip, int thresh_mv)
 				PM8917_USB_UVD_MASK, temp);
 }
 
-#define PM8921_CHG_IBATMAX_MIN	325
+#define PM8921_CHG_IBATMAX_MIN	225
 #define PM8921_CHG_IBATMAX_MAX	3025
+#define PM8921_CHG_IBATMAX_DOCK 525
 #define PM8921_CHG_I_MIN_MA	225
 #define PM8921_CHG_I_STEP_MA	50
 #define PM8921_CHG_I_MASK	0x3F
+static int pm_chg_ibatmax_convert(int chg_current)
+{
+	u8 temp;
+	//int res;
+
+	if (chg_current < PM8921_CHG_IBATMAX_MIN) {
+		chg_current = PM8921_CHG_IBATMAX_MIN;
+	}
+	if (chg_current > PM8921_CHG_IBATMAX_MAX) {
+		chg_current = PM8921_CHG_IBATMAX_MIN;
+	}
+	temp = ((chg_current - PM8921_CHG_I_MIN_MA) / PM8921_CHG_I_STEP_MA) & PM8921_CHG_I_MASK;
+	return (int)(temp & PM8921_CHG_I_MASK) * PM8921_CHG_I_STEP_MA + PM8921_CHG_I_MIN_MA;
+}
 static int pm_chg_ibatmax_get(struct pm8921_chg_chip *chip, int *ibat_ma)
 {
 	u8 temp;
@@ -2818,7 +2835,7 @@ static bool check_if_update_necessary(struct pm8921_chg_chip *chip)
 
 static void handle_usb_insertion_removal(struct pm8921_chg_chip *chip)
 {
-	int usb_present;
+	int rc, usb_present;
 
 	pm_chg_failed_clear(chip, 1);
 	usb_present = is_usb_chg_plugged_in(chip);
@@ -2836,6 +2853,16 @@ static void handle_usb_insertion_removal(struct pm8921_chg_chip *chip)
 		schedule_delayed_work(&chip->unplug_check_work,
 			msecs_to_jiffies(UNPLUG_CHECK_RAMP_MS));
 		pm8921_chg_enable_irq(chip, CHG_GONE_IRQ);
+		pm_chg_ibatmax_set(chip, 1500);
+		if (chip->vbus_collapse.collapsing) {
+			chip->vbus_collapse.collapsing = false;
+			pr_info("try to enable charging...\n");
+			//pm8921_disable_source_current(false);
+			rc = update_disable_charge_state(chip, 0, DIS_BIT_USB_MASK);
+			if (rc) {
+				pr_err("Failed to enable charging rc=%d\n", rc);
+			}
+		}
 	} else {
 		/* USB unplugged reset target current */
 		usb_target_ma = 0;
@@ -3130,6 +3157,18 @@ static void vin_collapse_check_worker(struct work_struct *work)
 			schedule_delayed_work(&chip->unplug_check_work,
 				      msecs_to_jiffies
 						(UNPLUG_CHECK_WAIT_PERIOD_MS));
+	} else if (is_dc_chg_plugged_in(chip)) {
+		//&& !chip->disable_aicl) {
+		/* decrease usb_target_ma */
+		//decrease_usb_ma_value(&usb_target_ma);
+		/* reset here, increase in unplug_check_worker */
+		//__pm8921_charger_vbus_draw(USB_WALL_THRESHOLD_MA);
+		pr_info("DC COLLAPS DETECTED!!!\n");//,
+		//		USB_WALL_THRESHOLD_MA, usb_target_ma);
+		//if (!delayed_work_pending(&chip->unplug_check_work))
+		//	schedule_delayed_work(&chip->unplug_check_work,
+		//		      msecs_to_jiffies
+		//				(UNPLUG_CHECK_WAIT_PERIOD_MS));
 	} else {
 		handle_usb_insertion_removal(chip);
 	}
@@ -3404,16 +3443,102 @@ static int check_recover_vbus_collapse(struct pm8921_vbus_collapse *vc,
 	return target;
 }
 
+static int check_recover_vbus_collapse_dc(struct pm8921_vbus_collapse *vc,
+					int target, int now)
+{
+	if(target < PM8921_CHG_IBATMAX_MIN) target = PM8921_CHG_IBATMAX_MIN;
+	if(target > PM8921_CHG_IBATMAX_DOCK) target = PM8921_CHG_IBATMAX_DOCK;
+
+	if (vc->collapsing) {// && !vc->enabled)
+		//return target;
+
+	if (vc->collapsing && !charging_disabled && now < 0) {
+		vc->retry_current_time = VBUS_IN_CURR_LIM_RETRY_SET_TIME;
+		vc->start = get_monotonic_coarse();
+		vc->collapsing = true;
+		//vc->enabled = true;
+		pr_info("negative charge current %d mA. Retry set %d " \
+			"mA latter\n", now, target);
+		target = target;
+	} else {
+		struct timespec diff;
+
+		diff = timespec_sub(get_monotonic_coarse(), vc->start);
+
+		if (diff.tv_sec >= vc->retry_current_time) {
+			if(!charging_disabled) {
+				vc->start = get_monotonic_coarse();
+				target = target + 100;
+				pr_info("positive charge current %d mA. Try set %d " \
+					"mA\n", now, target);
+			} else {
+				vc->start = get_monotonic_coarse();
+				target = target + 1;
+				pr_info("charge current %d mA. Trying to enable charging at %d mA\n", now, target);
+				return target;
+			}
+		} else {
+			target = target;
+		}
+	}
+
+	} else target = PM8921_CHG_IBATMAX_DOCK;
+
+	target = pm_chg_ibatmax_convert(target);
+
+	if(target < PM8921_CHG_IBATMAX_MIN) target = PM8921_CHG_IBATMAX_MIN;
+	if(target > PM8921_CHG_IBATMAX_DOCK) target = PM8921_CHG_IBATMAX_DOCK;
+
+	return target;
+}
+
 static void notify_dock_event(struct pm8921_chg_chip *chip)
 {
-	int dock_event = is_dc_chg_plugged_in(chip);
+	int ibatmax;
+	int rc, dock_event = is_dc_chg_plugged_in(chip);
 
 	if (chip->dock_event != dock_event) {
 		chip->dock_event = dock_event;
-		pr_debug("DOCK event is changed to %d\n", dock_event);
+		pr_info("DOCK event is changed to %d\n", dock_event);
 
 		switch_set_state(&chip->swdev, !!dock_event);
 		wake_lock_timeout(&chip->dock_wake_lock, HZ / 2);
+
+		rc = pm_chg_ibatmax_get(chip, &ibatmax);
+		if (rc) {
+			pr_err("Failed to read ibatmax rc=%d\n", rc);
+			return;
+		}
+
+		if(dock_event) {
+			if(ibatmax > PM8921_CHG_IBATMAX_DOCK) {
+				ibatmax = PM8921_CHG_IBATMAX_DOCK;
+				pr_info("DC plugged, trim ibatmax to %d\n", ibatmax);
+				pm_chg_ibatmax_set(chip, ibatmax);
+			}
+			if(!chip->vbus_collapse.collapsing) {
+				ibatmax = PM8921_CHG_IBATMAX_DOCK;
+				pr_info("DC plugged, no collapsing, set ibatmax to %d\n", ibatmax);
+				pm_chg_ibatmax_set(chip, ibatmax);
+			}
+		} else {
+			ibatmax = ibatmax/2;
+			if(ibatmax < PM8921_CHG_IBATMAX_MIN) ibatmax = PM8921_CHG_IBATMAX_MIN;
+			if(ibatmax > PM8921_CHG_IBATMAX_DOCK) ibatmax = PM8921_CHG_IBATMAX_DOCK;
+			pr_info("DC unplugged, changing ibatmax to %d\n", ibatmax);
+			pm_chg_ibatmax_set(chip, ibatmax);
+			chip->vbus_collapse.retry_current_time = VBUS_IN_CURR_LIM_RETRY_SET_TIME;
+			chip->vbus_collapse.start = get_monotonic_coarse();
+			chip->vbus_collapse.collapsing = true;
+			chip->vbus_collapse.enabled = true;
+			pr_info("disable charging...\n");
+			//pm8921_disable_source_current(true);
+			rc = update_disable_charge_state(chip, BIT(DIS_BIT_USB), DIS_BIT_USB_MASK);
+			if (rc) {
+				pr_err("Failed to disable CHG_CHARGE_DIS bit rc=%d\n", rc);
+				//return;
+			}
+		}
 	}
 }
 
@@ -3428,6 +3553,7 @@ static void unplug_check_worker(struct work_struct *work)
 	u8 reg_loop = 0, active_path;
 	int rc, ibat, active_chg_plugged_in, usb_ma;
 	int chg_gone = 0;
+	int bat_target_ma, ibatmax;
 	bool ramp = false;
 
 	notify_dock_event(chip);
@@ -3545,6 +3671,87 @@ static void unplug_check_worker(struct work_struct *work)
 			usb_target_ma = usb_ma;
 		}
 	}
+
+	if ((active_path & DC_ACTIVE_BIT) && get_prop_batt_status(chip) != POWER_SUPPLY_STATUS_FULL) {//(chip->ext_charge_done || chip->bms_notify.is_battery_full == 1)) {//!(reg_loop & VIN_ACTIVE_BIT) &&
+		//&& ibat < 0
+		//&& !charging_disabled
+		//&& !chip->disable_aicl) {
+		if (chip->is_bat_burn > 11 && !chip->is_bat_burn_wating) {
+			pm8921_disable_source_current(true);
+			chip->is_bat_burn_wating = true;
+		}
+
+		rc = pm_chg_ibatmax_get(chip, &ibatmax);
+		if (rc) {
+			pr_err("Failed to read ibatmax rc=%d\n", rc);
+			goto check_again_later;
+		}
+		if (!chip->is_bat_warm) {
+			bat_target_ma =
+				check_recover_vbus_collapse_dc(&chip->vbus_collapse,
+								ibatmax, -ibat);
+		} else {
+			bat_target_ma = ibatmax;
+		}
+		if (bat_target_ma > 0) {
+			if (charging_disabled) {
+				if (chip->is_bat_warm) {
+					if (chip->is_bat_burn > 8 && !chip->is_bat_burn_wating) {
+						pm8921_disable_source_current(true);
+						chip->is_bat_burn_wating = true;
+					}
+					//pr_info("battery warm! waiting...\n");
+					goto check_again_later;
+				} else {
+					if (chip->vbus_collapse.collapsing && ibatmax == bat_target_ma) {
+						goto check_again_later;
+					}
+				}
+				pr_info("try to enable charging...\n");
+				pm8921_disable_source_current(false);
+				chip->is_bat_burn_wating = false;
+				rc = update_disable_charge_state(chip, 0, DIS_BIT_USB_MASK);
+				if (rc) {
+					pr_err("Failed to enable charging rc=%d\n", rc);
+					goto check_again_later;
+				}
+			} else {
+				if (chip->is_bat_warm) {
+					bat_target_ma = PM8921_CHG_IBATMAX_MIN;
+				//	pr_info("battery warm! trim ibatmax to %dmA\n", bat_target_ma);
+					if (chip->is_bat_burn) {
+						pr_info("disable charging...\n");
+						//pm8921_disable_source_current(true);
+						rc = update_disable_charge_state(chip, BIT(DIS_BIT_USB), DIS_BIT_USB_MASK);
+						if (rc) {
+							pr_err("Failed to disable CHG_CHARGE_DIS bit rc=%d\n", rc);
+							//return;
+						}
+						goto check_again_later;
+					}
+				}
+				if (ibatmax != bat_target_ma) {
+					if (chip->is_bat_warm) {
+						bat_target_ma = PM8921_CHG_IBATMAX_MIN;
+						pr_info("battery warm! trim ibatmax to %dmA\n", bat_target_ma);
+					}
+					ibatmax = bat_target_ma;//ibatmax + 100;
+					if(chip->vbus_collapse.collapsing && ibatmax >= PM8921_CHG_IBATMAX_DOCK) {
+						ibatmax = PM8921_CHG_IBATMAX_DOCK;
+						chip->vbus_collapse.collapsing = false;
+						pr_info("end collapsing. max DOCK current %dmA riched\n", ibatmax);
+					}
+					pr_info("set ibatmax = %d\n", ibatmax);
+					pm_chg_ibatmax_set(chip, ibatmax);
+			
+					//ramp = true;
+				}
+			}
+		}
+	}
+
+
+
 check_again_later:
 	pr_debug("ramp: %d\n", ramp);
 	/* schedule to check again later */
@@ -4049,6 +4256,17 @@ static void check_temp_thresholds(struct pm8921_chg_chip *chip)
 			battery_warm(false);
 		else if (!chip->is_bat_warm && temp >= chip->warm_temp_dc)
 			battery_warm(true);
+		if (temp >= chip->warm_temp_dc + 10) {//chip->warm_temp_dc + chip->hysteresis_temp_dc)
+			if (!chip->is_bat_burn) {
+				pr_info("battery overheat detected!!! temp = %d\n",	temp);
+			}
+			chip->is_bat_burn = 1 + (temp - (chip->warm_temp_dc + 10));
+		}
+		else {
+			if (chip->is_bat_burn) pr_info("battery overheat stopped. temp = %d\n",	temp);
+			chip->is_bat_burn = false;
+			chip->is_bat_burn_wating = false;
+		}
 	}
 
 	if (chip->cool_temp_dc != INT_MIN) {

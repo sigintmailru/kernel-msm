@@ -87,11 +87,11 @@ struct pm8xxx_ccadc_chip {
 static struct pm8xxx_ccadc_chip *the_chip;
 
 #ifdef DEBUG
-static s64 microvolt_to_ccadc_reading(struct pm8xxx_ccadc_chip *chip, s64 cc)
-{
-	return div_s64(uv * CCADC_READING_RESOLUTION_D,
-				CCADC_READING_RESOLUTION_N);
-}
+//static s64 microvolt_to_ccadc_reading(struct pm8xxx_ccadc_chip *chip, s64 uv)
+//{
+//	return div_s64(uv * CCADC_READING_RESOLUTION_D,
+//				CCADC_READING_RESOLUTION_N);
+//}
 #endif
 
 static int cc_adjust_for_offset(u16 raw)
